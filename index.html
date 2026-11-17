@@ -7,7 +7,9 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; }
-    body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; background: #f4f6f8; }
+   /* Parche de retrocompatibilidad estricta para WebViews y navegadores móviles antiguos */
+    body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: #f4f6f8; }
+    @supports (height: 100dvh) { body { height: 100dvh; } }
     
     #toolbar {
       background: #111827; color: #fff; padding: 10px 16px;
