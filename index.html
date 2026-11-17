@@ -4,10 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Mapa de Rutas de Transporte - Planta DN</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  
+  <!-- CAMBIO CRÍTICO: Cambio de CDN de unpkg a Cloudflare (cdnjs) para evadir bloqueo de Telcel -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+  
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; }
-   /* Parche de retrocompatibilidad estricta para WebViews y navegadores móviles antiguos */
+    
+    /* Parche de retrocompatibilidad estricta para WebViews y navegadores móviles */
     body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: #f4f6f8; }
     @supports (height: 100dvh) { body { height: 100dvh; } }
     
@@ -93,7 +97,7 @@
     #center-marker-overlay {
       display: none; position: absolute; top: 50%; left: 50%;
       transform: translate(-50%, -50%); z-index: 1001; 
-      pointer-events: none; /* Crucial: permite que el mapa reciba los toques para arrastrar */
+      pointer-events: none; 
       flex-direction: column; align-items: center; justify-content: center;
     }
     .crosshair-dot {
@@ -140,7 +144,6 @@
 
 <div id="main">
   <div id="map">
-    <!-- UI de Selección Flotante estilo Uber -->
     <div id="center-marker-overlay">
       <div class="map-home-icon">🏠</div>
       <div class="crosshair-dot"></div>
@@ -166,7 +169,8 @@
   </div>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- CAMBIO CRÍTICO: Cambio de CDN de unpkg a Cloudflare (cdnjs) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script>
   const PLANTA_DN = { lat: 21.9845, lng: -100.8685 };
 
@@ -396,7 +400,6 @@
   }
 
   function selectRoute(key, btnEl) {
-    // Al cambiar de ruta, abortar selección de domicilio si estaba activa
     abortLocationSelection();
 
     activeRouteKey = key;
@@ -482,23 +485,15 @@
     if (userHomeMarker) map.removeLayer(userHomeMarker);
     if (userHomeRouteLayer) map.removeLayer(userHomeRouteLayer);
 
-    // Muestra la UI superpuesta (Marcador central estático y botón)
     document.getElementById('center-marker-overlay').style.display = 'flex';
     document.getElementById('confirm-location-btn').style.display = 'flex';
   }
 
   function confirmCenterLocation() {
-    // 1. Ocultar UI de selección superpuesta
     abortLocationSelection();
-
-    // 2. Obtener la coordenada exacta donde quedó el mapa
     const center = map.getCenter();
-
-    // 3. Colocar el marcador real de Leaflet en ese punto
     const homeIcon = L.divIcon({ className: '', html: `<div class="map-home-icon">🏠</div>`, iconSize: [34, 34], iconAnchor: [17, 17] });
     userHomeMarker = L.marker(center, { icon: homeIcon }).addTo(map);
-
-    // 4. Calcular ruta
     calculateClosestStop(center);
   }
 
