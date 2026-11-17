@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Mapa de Rutas de Transporte - Planta DN</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; }
+    /* Uso de dvh para evitar que la barra de direcciones móvil rompa el layout */
+    body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; background: #f4f6f8; }
+    
+    #toolbar {
+      background: #111827; color: #fff; padding: 10px 16px;
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between;
+      z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    }
+    .route-btns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .btn {
+      border: none; padding: 7px 12px; border-radius: 6px; cursor: pointer;
+      font-size: 13px; font-weight: 600; color: #fff; transition: 0.15s;
+      display: flex; align-items: center; gap: 6px; opacity: 0.85;
+    }
+    .btn:hover, .btn.active { opacity: 1; transform: translateY(-1px); box-shadow: 0 0 0 2px #fff; }
+    .btn-tool { background: #374151; font-weight: 500; }
+    
+    #main { display: flex; flex: 1; position: relative; }
+    #map { flex: 1; height: 100%; z-index: 1; }
+    
+    #sidebar {
+      width: 370px; background: #ffffff; border-left: 1px solid #d1d5db;
+      display: flex; flex-direction: column; overflow: hidden; z-index: 900;
+    }
+    #sidebar-header {
+      padding: 14px 16px; background: #1f2937; color: #fff;
+      font-size: 16px; font-weight: 700; display: flex; justify-content: space-between; align-items: center;
+    }
+    #stops-list { flex: 1; overflow-y: auto; padding: 10px 12px; }
+    .stop-item {
+      display: flex; align-items: flex-start; gap: 10px; padding: 8px;
+      border-bottom: 1px solid #e5e7eb; cursor: pointer; border-radius: 6px;
+    }
+    .stop-item:hover { background: #f3f4f6; }
+    .stop-badge {
+      min-width: 26px; height: 26px; border-radius: 50%; color: #fff;
+      font-weight: 700; font-size: 13px; display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3); margin-top: 2px;
+    }
+    .stop-info { flex: 1; font-size: 12.5px; color: #111827; }
+    .stop-name { font-weight: 600; line-height: 1.3; }
+    .stop-times { color: #4b5563; font-size: 11.5px; margin-top: 3px; font-weight: 500; }
+
+    .map-number-icon {
+      border-radius: 50%; color: #ffffff; font-weight: 800; font-size: 13px;
+      display: flex; align-items: center; justify-content: center;
+      border: 2.5px solid #ffffff; box-shadow: 0 2px 6px rgba(0,0,0,0.45);
+      text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+    }
+    .map-plant-icon {
+      background: #111827; color: #facc15; border-radius: 6px; font-weight: 900;
+      font-size: 11px; display: flex; align-items: center; justify-content: center;
+      border: 2px solid #facc15; box-shadow: 0 3px 8px rgba(0,0,0,0.5); padding: 2px 5px;
+      white-space: nowrap;
+    }
+    .map-home-icon {
+      background: #ffffff; color: #000; border-radius: 50%; font-size: 18px;
+      display: flex; align-items: center; justify-content: center;
+      border: 2px solid #f59e0b; box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+      width: 34px; height: 34px;
+    }
+
+    #location-modal {
+      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(17, 24, 39, 0.8); z-index: 3000; justify-content: center; align-items: center;
+      backdrop-filter: blur(4px);
+    }
+    .modal-content {
+      background: #ffffff; padding: 24px; border-radius: 12px; width: 340px;
+      text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+    }
+    .modal-content h3 { margin-bottom: 12px; color: #111827; font-size: 18px; }
+    .modal-content p { font-size: 14px; margin-bottom: 24px; color: #4b5563; line-height: 1.5; }
+    .modal-buttons { display: flex; justify-content: space-between; gap: 12px; }
+    .modal-btn {
+      flex: 1; padding: 12px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; font-size: 14px;
+    }
+    .btn-cancel { background: #e5e7eb; color: #374151; }
+    .btn-accept { background: #3b82f6; color: #ffffff; }
+
+    /* === REGLAS RESPONSIVAS PARA MÓVILES === */
+    @media (max-width: 768px) {
+      #main { flex-direction: column; }
+      
+      /* El mapa toma la parte superior */
+      #map { flex: 1; height: 60vh; }
+      
+      /* La lista de paradas se convierte en un panel inferior */
+      #sidebar { width: 100%; height: 40vh; border-left: none; border-top: 2px solid #d1d5db; }
+      
+      /* Barra de herramientas deslizable horizontalmente para no aplastar el mapa */
+      #toolbar { 
+        flex-wrap: nowrap; overflow-x: auto; padding: 12px 10px; 
+        -webkit-overflow-scrolling: touch; justify-content: flex-start;
+      }
+      #toolbar::-webkit-scrollbar { display: none; }
+      .route-btns { flex-wrap: nowrap; }
+      .btn { white-space: nowrap; font-size: 12px; padding: 8px 12px; }
+      
+      /* Ajuste del Modal para pantallas chicas */
+      .modal-content { width: 90%; padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+  <div class="route-btns" id="route-buttons">
+    <button class="btn active" style="background:#374151" onclick="selectRoute('ALL', this)">🗺️ Ver Todas (7)</button>
+  </div>
+  <div class="route-btns">
+    <button class="btn btn-tool" style="background:#f59e0b; color:#111827;" onclick="openLocationModal()">📍 Encuentra tu ruta</button>
+    <button class="btn btn-tool" id="toggle-snap" onclick="toggleRoutingMode()">📏 Trazado: Línea Directa</button>
+    <button class="btn btn-tool" onclick="toggleSidebar()">📋 Ocultar/Mostrar Lista</button>
+  </div>
+</div>
+
+<div id="main">
+  <div id="map"></div>
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <span id="sidebar-title">Todas las Rutas</span>
+    </div>
+    <div id="stops-list"></div>
+  </div>
+</div>
+
+<div id="location-modal">
+  <div class="modal-content">
+    <h3>Encuentra tu ruta</h3>
+    <p>Por favor, selecciona de la manera más precisa posible tu domicilio en el mapa.</p>
+    <div class="modal-buttons">
+      <button class="modal-btn btn-cancel" onclick="closeLocationModal()">Cancelar</button>
+      <button class="modal-btn btn-accept" onclick="acceptLocation()">Aceptar</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const PLANTA_DN = { lat: 21.9845, lng: -100.8685 };
+
+  const ROUTES = {
+    SAUCITO: {
+      name: "RUTA SAUCITO", color: "#d9381e",
+      stops: [
+        { n: "1", name: "AV FRAY DIEGO DE LA MAGDALENA / ESQ. PLAN DE AYUTLA (Panteon Saucito)", t1: "5:55", t2: "18:10", lat: 22.1818, lng: -100.9996 },
+        { n: "2", name: "AV. VASCO DE QUIROGA / CALLE 4 (FRENTE A OXXO)", t1: "5:59", t2: "18:14", lat: 22.1765, lng: -100.9934 },
+        { n: "3", name: "AV. HERNAN CORTES / AV. PEDRO MORENO (Sobre Hernan Cortes)", t1: "6:02", t2: "18:17", lat: 22.1691, lng: -100.9856 },
+        { n: "4", name: "AV. HERNAN CORTES / AV DAMIAN CARMONA (REFA LA CURVA)", t1: "6:05", t2: "18:20", lat: 22.1664, lng: -100.9780 },
+        { n: "5", name: "AV. DE LA PAZ / ESQ. AV EJE VIAL", t1: "6:10", t2: "18:25", lat: 22.1610, lng: -100.9740 },
+        { n: "6", name: "AV. EJE VIAL / CORONEL ESPINOSA (FRENTE IGLESIA TLAXCALA)", t1: "6:12", t2: "18:27", lat: 22.1585, lng: -100.9734 },
+        { n: "7", name: "AV. EJE VIAL / ESQ CALLE PEDRO MONTOYA", t1: "6:14", t2: "18:29", lat: 22.1558, lng: -100.9718 },
+        { n: "8", name: "AV. UNIVERSIDAD / ALAMEDA", t1: "6:19", t2: "18:34", lat: 22.1510, lng: -100.9678 },
+        { n: "9", name: "AV UNIVERSIDAD / ESQ. CALLE 8 (Parabus Hogar del Niño)", t1: "6:22", t2: "18:37", lat: 22.1481, lng: -100.9575 },
+        { n: "10", name: "CARR 57 ESTACIONAMIENTO CENTRAL CAMIONERA", t1: "6:24", t2: "18:39", lat: 22.1444, lng: -100.9452 },
+        { n: "11", name: "CARR 57 / ESQ. CALLE GRANATE (Planta Mercurio)", t1: "6:26", t2: "18:41", lat: 22.1384, lng: -100.9377 },
+        { n: "12", name: "CARR 57 / ESQ CALLE TOPACIO (Parador Agencia KIA - HONDA)", t1: "6:28", t2: "18:43", lat: 22.1332, lng: -100.9324 },
+        { n: "13", name: "CARR 57 / HOTEL HOLIDAY INN QUIJOTE (Estacionamiento)", t1: "6:29", t2: "18:44", lat: 22.1275, lng: -100.9275 },
+        { n: "14", name: "PLANTA DN", t1: "7:10", t2: "19:15", lat: PLANTA_DN.lat, lng: PLANTA_DN.lng, isPlant: true }
+      ]
+    },
+    SOLEDAD_1: {
+      name: "RUTA SOLEDAD 1", color: "#2563eb",
+      stops: [
+        { n: "1", name: "AV DEL VALLE / ESQ. CALLE VOLCAN (Frente Iglesia Pavon)", t1: "5:50", t2: "18:10", lat: 22.1770, lng: -100.9568 },
+        { n: "2", name: "CARR MEXICO / ESQ. CALLE ESMERALDA (Plaza Esmeralda)", t1: "5:53", t2: "18:13", lat: 22.1742, lng: -100.9472 },
+        { n: "3", name: "AV SOLEDAD / ESQ. SANTO DOMINGO (Frente Farmacia Guadalajara Col San Felipe)", t1: "5:55", t2: "18:15", lat: 22.1815, lng: -100.9425 },
+        { n: "4", name: "GASOLINERIA SAN LUIS / ESQ. CARR 57 MEXICO", t1: "6:00", t2: "18:20", lat: 22.1678, lng: -100.9461 },
+        { n: "5", name: "AV. VALENTIN AMADOR / ESQ CALLE BENITO JUAREZ (Tienda OXXO)", t1: "6:05", t2: "18:25", lat: 22.1656, lng: -100.9425 },
+        { n: "6", name: "AV. VALENTIN AMADOR / CALLE LAZARO CARDENAS (San Antonio)", t1: "6:07", t2: "18:27", lat: 22.1648, lng: -100.9405 },
+        { n: "7", name: "CALLE LAZARO CARDENAS / CALLE PONCIANO ARRIAGA (Esq. Iglesia San Antonio)", t1: "6:08", t2: "18:28", lat: 22.1633, lng: -100.9403 },
+        { n: "8", name: "CARR 70 RIOVERDE / LATERAL TEC REGIONAL (Parada de Autobus urbano)", t1: "6:10", t2: "18:30", lat: 22.1565, lng: -100.9360 },
+        { n: "9", name: "CARR 70 RIOVERDE / ESQ. AV GENOVEVO RIVAS GUILLEN (Puente Peatonal, SONIGAS)", t1: "6:12", t2: "18:32", lat: 22.1534, lng: -100.9288 },
+        { n: "10", name: "CARR RIO VERDE / ESQ. AV GALVEZ (Antes del Semaforo)", t1: "6:15", t2: "18:35", lat: 22.1505, lng: -100.9198 },
+        { n: "11", name: "PERIFERICO OTE / ESQ. LAGOS DE MORENO (Farmacia Guadalajara, Foresta)", t1: "6:20", t2: "18:40", lat: 22.1438, lng: -100.9028 },
+        { n: "12", name: "PERIFERICO ORIENTE / ESQ. CALLE 71 (Lateral Periferico)", t1: "6:24", t2: "18:44", lat: 22.1265, lng: -100.9015 },
+        { n: "13", name: "PLANTA DN", t1: "7:10", t2: "19:15", lat: PLANTA_DN.lat, lng: PLANTA_DN.lng, isPlant: true }
+      ]
+    },
+    SOLEDAD_2: {
+      name: "RUTA SOLEDAD 2", color: "#7c3aed",
+      stops: [
+        { n: "1", name: "FRACCIONAMIENTO EL TORO (RETORNO)", t1: "5:45", t2: "18:10", lat: 22.1852, lng: -100.9158 },
+        { n: "2", name: "CALLE JULIO R. CORDOVA, LA VIRGEN (GLORIETA BODEGA AURRERA)", t1: "5:50", t2: "18:10", lat: 22.1743, lng: -100.9185 },
+        { n: "3", name: "CARR RIO VERDE / ESQ. CALLE AURORA", t1: "5:57", t2: "18:17", lat: 22.1508, lng: -100.9180 },
+        { n: "4", name: "CARR RIOVERDE / ESQ. AV CACTUS", t1: "5:59", t2: "18:19", lat: 22.1492, lng: -100.9128 },
+        { n: "5", name: "AV CACTUS / ESQ. CALLE PALMAS (Circle K)", t1: "6:02", t2: "18:22", lat: 22.1442, lng: -100.9135 },
+        { n: "6", name: "AV CACTUS / ESQ.CALLE SAN FCO", t1: "6:07", t2: "18:27", lat: 22.1392, lng: -100.9152 },
+        { n: "7", name: "CALLE SAN FCO / AV. CORDILLERA ORIENTAL", t1: "6:08", t2: "18:28", lat: 22.1388, lng: -100.9108 },
+        { n: "8", name: "AV. CORDILLERA ORIENTAL / ESQ. SIERRA DE ALVARES", t1: "6:09", t2: "18:29", lat: 22.1373, lng: -100.9058 },
+        { n: "9", name: "AV. CORDILLERA ORIENTAL / ESQ. SIERRA DE SAN PATRICIO (PANADERIA)", t1: "6:10", t2: "18:30", lat: 22.1360, lng: -100.9002 },
+        { n: "10", name: "AV. SANTA ANNA / RICARDO. B. ANAYA", t1: "6:14", t2: "18:34", lat: 22.1332, lng: -100.9052 },
+        { n: "11", name: "AV. SANTA ANNA / CALLE 99 (TIENDA ABARROTES)", t1: "6:16", t2: "18:36", lat: 22.1292, lng: -100.9068 },
+        { n: "12", name: "CALLE 99 / CALLE 30 (FRENTE AL OXXO)", t1: "6:17", t2: "18:37", lat: 22.1272, lng: -100.9088 },
+        { n: "13", name: "CALLE 99 / ESQ. CALLE 26", t1: "6:19", t2: "18:39", lat: 22.1252, lng: -100.9105 },
+        { n: "14", name: "CALLE 99 / ESQ. CALLE 24", t1: "6:23", t2: "18:43", lat: 22.1232, lng: -100.9122 },
+        { n: "15", name: "CALLE 24 / ESQ. CALLE PUERTO LIMON (Parada Super El Gordo)", t1: "6:24", t2: "18:44", lat: 22.1212, lng: -100.9078 },
+        { n: "16", name: "CALLE 24 / ESQ. CALLE VALLE DE SAN FRANCISCO (Termino de Calle 71)", t1: "6:25", t2: "18:45", lat: 22.1192, lng: -100.9038 },
+        { n: "17", name: "CALLE VALLE DE SAN FRANCISCO / AV. SEMINARIO (Glorieta De Los Silos)", t1: "6:27", t2: "18:47", lat: 22.1162, lng: -100.9018 },
+        { n: "18", name: "AV. SEMINARIO / ESQ. VALLE DE ZANGARRO (Antes Puente De Los Silos, Dulceria Botanas)", t1: "6:29", t2: "18:49", lat: 22.1132, lng: -100.9078 },
+        { n: "19", name: "PLANTA DN", t1: "7:10", t2: "19:15", lat: PLANTA_DN.lat, lng: PLANTA_DN.lng, isPlant: true }
+      ]
+    },
+    SAN_LUIS: {
+      name: "RUTA SAN LUIS", color: "#059669",
+      stops: [
+        { n: "1", name: "AV. CALZADA GPE / CALLE GRAL FUERO (Antig- Caja Del Agua)", t1: "5:55", t2: "18:10", lat: 22.1425, lng: -100.9732 },
+        { n: "2", name: "AV. CALZADA GPE / ESQ. CARLOS DIEZ GUTIERREZ (Edif Cruz Roja Mexicana)", t1: "5:59", t2: "18:12", lat: 22.1385, lng: -100.9715 },
+        { n: "3", name: "AV. CALZADA GPE / ESQ. AV. HIMNO NACIONAL (Pizzas Bubbas)", t1: "6:02", t2: "18:14", lat: 22.1340, lng: -100.9702 },
+        { n: "4", name: "AV. CONSTITUCION / ESQ. AV. SALVADOR NAVA (Entre Cuchilla)", t1: "6:05", t2: "18:18", lat: 22.1325, lng: -100.9635 },
+        { n: "5", name: "AV CONSTITUCION / REPUBLICA DE ARGENTINA (ESQ. OXXO)", t1: "6:10", t2: "18:21", lat: 22.1265, lng: -100.9612 },
+        { n: "6", name: "AV CONSTITUCION / REPUBLICA DE COLOMBIA (ESQ. PAPELERIA, Frente Aurrera)", t1: "6:12", t2: "18:22", lat: 22.1215, lng: -100.9592 },
+        { n: "7", name: "CAMINO AL AGUAJE / ESQ. AV SIMON DIAZ (Iglesia Piedra)", t1: "6:14", t2: "18:24", lat: 22.1160, lng: -100.9605 },
+        { n: "8", name: "CAMINO AL AGUAJE / ESQ. CALLE DE COMANDANTES (Residencial del Bosque, Tienda)", t1: "6:19", t2: "18:26", lat: 22.1120, lng: -100.9565 },
+        { n: "9", name: "AV. FRANK ZARAT / ESQ. AV. SALK", t1: "6:22", t2: "18:28", lat: 22.1085, lng: -100.9510 },
+        { n: "10", name: "AV. OBSERVATORIO / ESQ. ANTIGUO CAMINO A SIMON DIAZ", t1: "6:24", t2: "18:29", lat: 22.1042, lng: -100.9555 },
+        { n: "11", name: "ANTIGUO CAMINO A SIMON DIAZ/ESQ. TROJES DEL DESIERTO (Frente Deptvo Trojes)", t1: "6:26", t2: "18:31", lat: 22.0998, lng: -100.9535 },
+        { n: "12", name: "AV. TURQUESA/ESQ. MTZ DE LA VEGA", t1: "6:28", t2: "18:32", lat: 22.1012, lng: -100.9425 },
+        { n: "13", name: "AV. INDUSTRIAS / ALTURA EJE 104", t1: "6:29", t2: "18:40", lat: 22.1055, lng: -100.9230 },
+        { n: "14", name: "PLANTA DN", t1: "7:10", t2: "19:15", lat: PLANTA_DN.lat, lng: PLANTA_DN.lng, isPlant: true }
+      ]
+    },
+    POZOS: {
+      name: "RUTA POZOS", color: "#d97706",
+      stops: [
+        { n: "1", name: "CAMINO A SANTA RITA (deposito el rodeo)", t1: "6:10", t2: "18:20", lat: 22.0952, lng: -100.8482 },
+        { n: "2", name: "AVENIDA GRAN VERGEL (entrada a NIKTE RESIDENCIAL)", t1: "6:17", t2: "18:27", lat: 22.0982, lng: -100.8582 },
+        { n: "3", name: "ENTRADA A FRACCIONAMIENTO DEVAN", t1: "6:20", t2: "18:30", lat: 22.1012, lng: -100.8682 },
+        { n: "4", name: "BELLAVISTA", t1: "6:25", t2: "18:35", lat: 22.1020, lng: -100.8752 },
+        { n: "5", name: "GASOLINERA POZOS", t1: "6:27", t2: "18:37", lat: 22.1025, lng: -100.8812 },
+        { n: "6", name: "PUERTA NATURA", t1: "6:34", t2: "18:44", lat: 22.0882, lng: -100.8742 },
+        { n: "7", name: "LA CANTERA RESIDENCIAL, BLVD. SAN ANTONIO", t1: "6:38", t2: "18:48", lat: 22.0922, lng: -100.8922 },
+        { n: "8", name: "CALLE JULIAN DE LOS REYES/ANTIGUO CAMINO A SANTA MARIA (OXXO Y CIRCLE K)", t1: "6:48", t2: "18:55", lat: 22.1002, lng: -100.8912 },
+        { n: "9", name: "CARRETERA 57 DESCANSO LA NORIA", t1: "6:55", t2: "18:59", lat: 22.0122, lng: -100.8612 },
+        { n: "10", name: "PLANTA DN", t1: "7:10", t2: "19:15", lat: PLANTA_DN.lat, lng: PLANTA_DN.lng, isPlant: true }
+      ]
+    },
+    NORTE: {
+      name: "RUTA NORTE", color: "#0891b2",
+      stops: [
+        { n: "1", name: "ANILLO PERIFERICO NTE./AV PUERTA REAL (OXXO PUERTA REAL)", t1: "5:53", t2: "18:10", lat: 22.2125, lng: -100.9615 },
+        { n: "2", name: "ANILLO PERIFERICO NTE./CAMINO EJIDO MILPILLAS (ESQUINA DEL CEMENTERIO)", t1: "5:57", t2: "18:14", lat: 22.2110, lng: -100.9735 },
+        { n: "3", name: "ANILLO PERIFERICO NTE./ PASANDO CAMINO A PEÑASCO (GOLDEN FRICTION)", t1: "5:59", t2: "18:16", lat: 22.2085, lng: -100.9805 },
+        { n: "4", name: "ANILLO PERIFERICO NTE./C. DEL ARROZ (MOLINOS DEL REY)", t1: "6:01", t2: "18:18", lat: 22.2035, lng: -100.9910 },
+        { n: "5", name: "ANILLO PERIFERICO NTE./AFUERA DE COCA COLA (LOCAL DE VENTA)", t1: "6:03", t2: "18:20", lat: 22.1995, lng: -100.9985 },
+        { n: "6", name: "AV. DEL SAUCE/CIRCUITO VILLAS DEL SAUCE (AFUERA DE GRUPO ENERGETICOS)", t1: "6:05", t2: "18:22", lat: 22.1945, lng: -101.0035 },
+        { n: "7", name: "AV. DEL SAUCE / AV. POPOCATEPETL (EN COMEX)", t1: "6:07", t2: "18:24", lat: 22.1912, lng: -100.9980 },
+        { n: "8", name: "AV. POPOCATEPETL / CERRO DE MITRAS (ESQUINA)", t1: "6:09", t2: "18:26", lat: 22.1875, lng: -100.9965 },
+        { n: "9", name: "AV. POPOCATEPETL/PANFILO NATERA (SUPER Y CARNICERIA SAN LUIS)", t1: "6:12", t2: "18:29", lat: 22.1840, lng: -100.9950 },
+        { n: "10", name: "PANFILO NATERA / C. SAN VICENTE MARTIR (ELEKTRA)", t1: "6:16", t2: "18:33", lat: 22.1852, lng: -101.0015 },
+        { n: "11", name: "PANFILO NATERA / AV. SAUCE (OXXO SAUCE SOBRE PANFILO)", t1: "6:18", t2: "18:35", lat: 22.1865, lng: -101.0065 },
+        { n: "12", name: "PLANTA DN", t1: "7:10", t2: "19:15", lat: PLANTA_DN.lat, lng: PLANTA_DN.lng, isPlant: true }
+      ]
+    },
+    PONIENTE: {
+      name: "RUTA PONIENTE", color: "#db2777",
+      stops: [
+        { n: "1", name: "AV. CARRANZA/TOMASA ESTEVEZ (parabus la parroquia)", t1: "5:58", t2: "18:10", lat: 22.1508, lng: -100.9885 },
+        { n: "2", name: "AV. CARRANZA/ BENIGNO ARRIAGA (parabus edificio EME)", t1: "6:00", t2: "18:12", lat: 22.1502, lng: -100.9942 },
+        { n: "3", name: "AV. CARRANZA/MARIANO AVILA (parabus jardin de tequis)", t1: "6:02", t2: "18:14", lat: 22.1505, lng: -100.9908 },
+        { n: "4", name: "AV. M. CLOUTHIER/CALLE BRISA (carniceria san miguel)", t1: "6:07", t2: "18:22", lat: 22.1385, lng: -101.0125 },
+        { n: "5", name: "AV. CHAPULTEPEC/CALLE PARQUE MACUL (oxxo av chapultepec)", t1: "6:10", t2: "18:28", lat: 22.1285, lng: -101.0085 },
+        { n: "6", name: "BLVD. A. ROCHA CORDERO/IGNACIO ZARAGOZA (vitromex tierra blanca)", t1: "6:22", t2: "18:35", lat: 22.1045, lng: -100.9825 },
+        { n: "7", name: "BLVD. A. ROCHA CORDERO/AV JUAREZ (BAJO PUENTE)", t1: "6:25", t2: "18:40", lat: 22.1072, lng: -100.9685 },
+        { n: "8", name: "BLVD. A. ROCHA CORDERO/GASOLINERA MOBIL FENAPO", t1: "6:28", t2: "18:44", lat: 22.1112, lng: -100.9605 },
+        { n: "9", name: "OXXO PUERTA DE PIEDRA", t1: "6:30", t2: "S/D", lat: 22.0545, lng: -100.8845 },
+        { n: "10", name: "PLANTA DN", t1: "7:10", t2: "19:15", lat: PLANTA_DN.lat, lng: PLANTA_DN.lng, isPlant: true }
+      ]
+    }
+  };
+
+  const map = L.map('map', { zoomControl: true }).setView([22.15, -100.96], 12);
+
+  const googleStreets = L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+    maxZoom: 20, attribution: 'Map data &copy; Google'
+  }).addTo(map);
+
+  const googleHybrid = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+    maxZoom: 20, attribution: 'Map data &copy; Google'
+  });
+
+  const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '&copy; OpenStreetMap'
+  });
+
+  L.control.layers({
+    "Google Maps (Calles)": googleStreets,
+    "Google Maps (Satélite + Calles)": googleHybrid,
+    "OpenStreetMap": osmLayer
+  }, null, { position: 'bottomright' }).addTo(map);
+
+  let useStreetRouting = false; 
+  let activeRouteKey = 'ALL';
+  const routeLayers = {};
+  const cachedGeometries = {};
+
+  let userHomeMarker = null;
+  let userHomeRouteLayer = null;
+
+  const btnContainer = document.getElementById('route-buttons');
+  Object.keys(ROUTES).forEach(key => {
+    const r = ROUTES[key];
+    const btn = document.createElement('button');
+    btn.className = 'btn';
+    btn.style.background = r.color;
+    btn.innerHTML = `🚌 ${r.name.replace('RUTA ', '')}`;
+    btn.onclick = () => selectRoute(key, btn);
+    btnContainer.appendChild(btn);
+  });
+
+  async function getRouteGeometry(key) {
+    const stops = ROUTES[key].stops;
+    const directCoords = stops.map(s => [s.lat, s.lng]);
+    if (!useStreetRouting) return directCoords;
+    if (cachedGeometries[key]) return cachedGeometries[key];
+
+    const coordsStr = stops.map(s => `${s.lng},${s.lat}`).join(';');
+    const url = `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`;
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.code === 'Ok' && data.routes && data.routes[0]) {
+        const geo = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+        cachedGeometries[key] = geo;
+        return geo;
+      }
+    } catch (e) {
+      return directCoords;
+    }
+    return directCoords;
+  }
+
+  async function drawRoute(key) {
+    if (routeLayers[key]) map.removeLayer(routeLayers[key]);
+    const r = ROUTES[key];
+    const group = L.featureGroup();
+
+    const pathCoords = await getRouteGeometry(key);
+
+    L.polyline(pathCoords, { color: '#ffffff', weight: 8, opacity: 0.85, lineJoin: 'round' }).addTo(group);
+    L.polyline(pathCoords, { color: r.color, weight: 4.5, opacity: 1, lineJoin: 'round' }).addTo(group);
+
+    r.stops.forEach((s) => {
+      const icon = s.isPlant
+        ? L.divIcon({ className: '', html: `<div class="map-plant-icon">🏭 ${s.n}. PLANTA DN</div>`, iconSize: [110, 26], iconAnchor: [55, 13] })
+        : L.divIcon({ className: '', html: `<div class="map-number-icon" style="background:${r.color}; width:28px; height:28px;">${s.n}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] });
+
+      const marker = L.marker([s.lat, s.lng], { icon }).addTo(group);
+      marker.bindPopup(`
+        <div style="font-size:13px; line-height:1.4;">
+          <strong style="color:${r.color}">${r.name} — Parada ${s.n}</strong><br/>
+          <b>${s.name}</b><br/>
+          <span>🕒 1.er Turno: <b>${s.t1}</b> | 2.º Turno: <b>${s.t2}</b></span>
+        </div>
+      `);
+    });
+
+    routeLayers[key] = group;
+    if (activeRouteKey === 'ALL' || activeRouteKey === key) group.addTo(map);
+  }
+
+  async function renderAllRoutes() {
+    for (const key of Object.keys(ROUTES)) await drawRoute(key);
+    updateSidebar('ALL');
+  }
+
+  function selectRoute(key, btnEl) {
+    activeRouteKey = key;
+    document.querySelectorAll('#route-buttons .btn').forEach(b => b.classList.remove('active'));
+    if (btnEl) btnEl.classList.add('active');
+
+    const boundsGroup = L.featureGroup();
+
+    Object.keys(ROUTES).forEach(k => {
+      if (!routeLayers[k]) return;
+      if (key === 'ALL' || k === key) {
+        if (!map.hasLayer(routeLayers[k])) map.addLayer(routeLayers[k]);
+        boundsGroup.addLayer(routeLayers[k]);
+      } else {
+        if (map.hasLayer(routeLayers[k])) map.removeLayer(routeLayers[k]);
+      }
+    });
+
+    if (boundsGroup.getLayers().length > 0) map.fitBounds(boundsGroup.getBounds(), { padding: [35, 35] });
+    updateSidebar(key);
+  }
+
+  function updateSidebar(key) {
+    const listEl = document.getElementById('stops-list');
+    const titleEl = document.getElementById('sidebar-title');
+    listEl.innerHTML = '';
+    const keysToShow = key === 'ALL' ? Object.keys(ROUTES) : [key];
+    titleEl.textContent = key === 'ALL' ? 'Todas las Paradas Oficiales' : ROUTES[key].name;
+
+    keysToShow.forEach(k => {
+      const r = ROUTES[k];
+      if (key === 'ALL') {
+        const h = document.createElement('div');
+        h.style.cssText = `background:${r.color}; color:#fff; padding:6px 10px; font-weight:700; font-size:12.5px; border-radius:4px; margin:8px 0 4px 0;`;
+        h.textContent = r.name;
+        listEl.appendChild(h);
+      }
+      r.stops.forEach(s => {
+        const item = document.createElement('div');
+        item.className = 'stop-item';
+        item.innerHTML = `
+          <div class="stop-badge" style="background:${s.isPlant ? '#111827' : r.color}">${s.n}</div>
+          <div class="stop-info">
+            <div class="stop-name">${s.name}</div>
+            <div class="stop-times">1.er Turno: <b>${s.t1}</b> &nbsp;|&nbsp; 2.º Turno: <b>${s.t2}</b></div>
+          </div>
+        `;
+        item.onclick = () => map.setView([s.lat, s.lng], 16);
+        listEl.appendChild(item);
+      });
+    });
+  }
+
+  async function toggleRoutingMode() {
+    useStreetRouting = !useStreetRouting;
+    const btn = document.getElementById('toggle-snap');
+    btn.textContent = useStreetRouting ? '🛣️ Trazado: Por Calles' : '📏 Trazado: Línea Directa';
+    for (const key of Object.keys(ROUTES)) await drawRoute(key);
+  }
+
+  function toggleSidebar() {
+    const sb = document.getElementById('sidebar');
+    sb.style.display = sb.style.display === 'none' ? 'flex' : 'none';
+    map.invalidateSize();
+  }
+  
+  function openLocationModal() { document.getElementById('location-modal').style.display = 'flex'; }
+  function closeLocationModal() { document.getElementById('location-modal').style.display = 'none'; }
+
+  function acceptLocation() {
+    closeLocationModal();
+    if (userHomeMarker) map.removeLayer(userHomeMarker);
+    if (userHomeRouteLayer) map.removeLayer(userHomeRouteLayer);
+
+    const center = map.getCenter();
+    const homeIcon = L.divIcon({ className: '', html: `<div class="map-home-icon">🏠</div>`, iconSize: [34, 34], iconAnchor: [17, 17] });
+
+    userHomeMarker = L.marker(center, { draggable: true, icon: homeIcon }).addTo(map);
+    userHomeMarker.bindPopup(`<div style="font-size:13px; font-weight:600; text-align:center; color:#374151;">Arrastra este marcador hasta<br>la puerta de tu domicilio exacto.</div>`).openPopup();
+    
+    userHomeMarker.on('dragend', function(e) { calculateClosestStop(e.target.getLatLng()); });
+    calculateClosestStop(center);
+  }
+
+  async function calculateClosestStop(homeLatLng) {
+    let closestStop = null;
+    let closestRoute = null;
+    let minDistance = Infinity;
+
+    Object.keys(ROUTES).forEach(rKey => {
+      const route = ROUTES[rKey];
+      route.stops.forEach(stop => {
+        if (stop.isPlant) return;
+        const dist = map.distance(homeLatLng, [stop.lat, stop.lng]);
+        if (dist < minDistance) { minDistance = dist; closestStop = stop; closestRoute = route; }
+      });
+    });
+
+    if (!closestStop) return;
+
+    const url = `https://router.project-osrm.org/route/v1/driving/${homeLatLng.lng},${homeLatLng.lat};${closestStop.lng},${closestStop.lat}?overview=full&geometries=geojson`;
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.code === 'Ok' && data.routes[0]) {
+        const geo = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+        const distKm = (data.routes[0].distance / 1000).toFixed(2);
+        const timeMin = Math.ceil(data.routes[0].duration / 60);
+
+        if (userHomeRouteLayer) map.removeLayer(userHomeRouteLayer);
+        userHomeRouteLayer = L.polyline(geo, { color: '#f59e0b', weight: 4, dashArray: '8, 8', opacity: 0.9 }).addTo(map);
+
+        userHomeMarker.bindPopup(`
+          <div style="font-size:13px; line-height:1.6; color:#111827;">
+            <div style="background:${closestRoute.color}; color:#fff; padding:3px 6px; border-radius:4px; font-weight:700; margin-bottom:5px; text-align:center;">
+              Ruta más cercana: ${closestRoute.name.replace('RUTA ', '')}
+            </div>
+            <strong>Parada:</strong> ${closestStop.name}<br>
+            <strong>Distancia:</strong> ${distKm} km<br>
+            <strong>Tiempo aprox.:</strong> ${timeMin} min
+          </div>
+        `).openPopup();
+      }
+    } catch (error) {
+      userHomeMarker.bindPopup(`
+        <div style="font-size:13px; line-height:1.6;">
+          <strong style="color:${closestRoute.color}">Ruta recomendada: ${closestRoute.name}</strong><br>
+          <strong>Parada:</strong> ${closestStop.name}<br>
+          <em>*No se pudo calcular el trayecto por calles.</em>
+        </div>
+      `).openPopup();
+    }
+  }
+
+  // Quitado el botón de edición para producción y seguridad
+  renderAllRoutes();
+</script>
+</body>
+</html>
